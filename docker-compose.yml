@@ -1,0 +1,43 @@
+version: "3.5"
+services:
+  redis:
+    image: redis
+    container_name: lab_redis
+    ports:
+      - "6379:6379"
+    restart: "always" 
+  service:
+    container_name: lab_service
+    volumes:
+      - ./:/var/www/LAB
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - 8000:8000
+    depends_on:
+      - redis
+      - worker
+    links:
+      - redis
+    command: /bin/sh -c "cd /var/www/LAB && uvicorn app:app --host=0.0.0.0 --port=8000 --reload"
+    extra_hosts:
+      - "api_home:192.168.7.166"
+    env_file:
+      - ./.env
+  worker:
+    container_name: lab_worker
+    volumes:
+      - ./:/var/www/LAB
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - redis
+    links:
+      - redis
+    command: /bin/sh -c "cd /var/www/LAB && celery -A celery_app worker --loglevel=INFO --pool=prefork --concurrency=8 --without-gossip --without-mingle"
+    extra_hosts:
+      - "api_home:192.168.7.166"
+    env_file:
+      - ./.env
