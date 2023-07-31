@@ -5,7 +5,7 @@ import datetime
 from fastapi import FastAPI
 
 # CORE
-from wrabbit import test_wrapper
+from wrabbit import rabbit_wrapper
 
 # TASK
 
@@ -17,19 +17,19 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def start_event():
-    test_wrapper.init()
+    rabbit_wrapper.init()
 
 
 @app.get("/")
 async def say_hello():
     return {"hello": "world"}
 
-
 @app.get("/hello")
-async def create():
-    test_wrapper.produce("hello", {"item": 123})
+async def create(scan_id:int):
+    rabbit_wrapper.produce("hello", {"scan_id": scan_id})
+
+@app.get("/stop_hello")
+async def stop_hello(scan_id:int):
+    rabbit_wrapper.produce("stop_hello", {"scan_id":scan_id})
 
 
-@app.get("/goodbye")
-async def goodbye():
-    test_wrapper.produce("goodbye", {"itemnnb": "123123"})

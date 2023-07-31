@@ -20,6 +20,7 @@ class CallbackTask(Task):
         args – Original arguments for the executed task.
         kwargs – Original keyword arguments for the executed task.
         """
+        print("TASK FINISHED!")
         redis_connect = connect_to_redis()
         redis_connect.publish(channel="task_channel", message=f"{task_id}")
         pass
@@ -31,18 +32,32 @@ class CallbackTask(Task):
         args – Original arguments for the task that failed.
         kwargs – Original keyword arguments for the task that failed.
         """
+        print("TASK EXIT!")
+        redis_connect = connect_to_redis()
+        redis_connect.publish(channel="task_channel", message=f"{task_id}")
         pass
 
 
 @celery_app.task(base=CallbackTask)
-def hello_task(message: Dict):
+def hello_task(scan_id:int):
     task_id = hello_task.request.id
-    # print(f"TASK_ID -> {task_id}")
+    
+    scan_id = int(scan_id)
+    task_id = str(task_id)
+    redis_connect = connect_to_redis()
+    redis_connect.set(scan_id, task_id)
+    redis_connect.close()
 
-    # print("WAITING in Progress")
+    print(f"HELLO -> [ID: {scan_id}] / TASK_ID: {task_id}")
+    
+    
     time.sleep(10)
-
-    print(f"HELLO - > {message}")
+    
+    counter = 0
+    while counter < 10:
+        counter = counter+1
+        print(f"hello counter from ID: {scan_id} -> {counter}")
+        time.sleep(3)
 
 
 @celery_app.task(base=CallbackTask)

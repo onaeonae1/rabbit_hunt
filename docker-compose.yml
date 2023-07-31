@@ -2,31 +2,29 @@ version: "3.5"
 services:
   redis:
     image: redis
-    container_name: lab_redis
-    ports:
-      - "6379:6379"
+    container_name: rabbit_redis
     restart: "always" 
   service:
-    container_name: lab_service
+    container_name: rabbit_service
     volumes:
       - ./:/var/www/LAB
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - 8000:8000
+      - 8001:8001
     depends_on:
       - redis
       - worker
     links:
       - redis
-    command: /bin/sh -c "cd /var/www/LAB && uvicorn app:app --host=0.0.0.0 --port=8000 --reload"
+    command: /bin/sh -c "cd /var/www/LAB && uvicorn app:app --host=0.0.0.0 --port=8001 --reload"
     extra_hosts:
       - "api_home:192.168.7.166"
     env_file:
       - ./.env
   worker:
-    container_name: lab_worker
+    container_name: rabbit_worker
     volumes:
       - ./:/var/www/LAB
     build:
