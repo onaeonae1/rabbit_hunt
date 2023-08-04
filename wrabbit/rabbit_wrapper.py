@@ -293,9 +293,16 @@ class RabbitWrapper(RabbitConfig):
         print(ret_message)
 
         formatted_data = dumps(ret_message)
-        self.__connect(producer=True)
-        self.__channel(producer=True)
-        channel = self.producer_connection.channel()
+        # self.__connect(producer=True)
+        # self.__channel(producer=True)
+
+        connection = BlockingConnection(
+            pika.URLParameters(
+                f"amqp://{self.username}:{self.password}@{self.host}:{self.port}/"
+            )
+        )
+
+        channel = connection.channel()
         channel.basic_publish(
             exchange="",
             routing_key=topic,
@@ -304,6 +311,7 @@ class RabbitWrapper(RabbitConfig):
                 delivery_mode=PERSISTENT_DELIVERY_MODE),
         )
         print(f"message published with routing key -> {topic}")
+        connection.close()
 
 
 # 싱글톤 및 lock 관련 내용

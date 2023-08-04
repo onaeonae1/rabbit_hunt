@@ -57,3 +57,19 @@ async def start_crawl(scan_id: int):
 @app.get("/stop_crawler")
 async def stop_crawl(scan_id: int):
     rabbit_wrapper.produce("stop_crawler", {"scan_id": scan_id})
+
+
+@app.get("/start_scanner")
+async def start_scanner(scan_id: int):
+    rabbit_wrapper.produce("start_scanner", {
+        "host": "192.168.7.77",
+        "scan_id": scan_id,
+        "port_list": "80, 81",
+    })
+
+
+@app.get("/stop_scanner")
+async def stop_scanner(scan_id: int):
+    rabbit_wrapper.produce("stop_scanner", {
+        "scan_id": scan_id,
+    })

@@ -58,12 +58,23 @@ def hello_task(scan_id: int):
         print(f"hello counter from ID: {scan_id} -> {counter}")
         time.sleep(3)
 
+    # cleanup
+
 
 def start_task_hello(data: Dict):
     ret_value = None
     scan_id = data.get("scan_id")
     if scan_id is not None:
-        ret_value = hello_task.delay(scan_id)
+        try:
+            redis_connect = connect_to_redis()
+            executed_task_id = redis_connect.get(scan_id)
+            if executed_task_id is None:
+                ret_value = hello_task.delay(scan_id)
+            else:
+                print(
+                    f"Task Already Executed -> {scan_id} || {executed_task_id}")
+        except:
+            pass
     return ret_value
 
 
