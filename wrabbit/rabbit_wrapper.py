@@ -24,8 +24,8 @@ from pika.adapters.blocking_connection import BlockingConnection, BlockingChanne
 from wrabbit import redis_config
 
 # tasks
-from celery_worker import hello_task, goodbye_task
 from celery_app import celery_app
+from celery_worker import start_task_hello
 
 connection_lock = Lock()
 execution_pool = ThreadPoolExecutor(max_workers=10)
@@ -51,7 +51,8 @@ def redis_subscribe(original_tag: int, ch: BlockingChannel, callback: Callable):
                 if delivery_tag is not None:
                     delivery_tag = int(delivery_tag)
                     if delivery_tag == original_tag:
-                        print(f"data -> {res} || delivery_tag -> {delivery_tag}")
+                        print(
+                            f"data -> {res} || delivery_tag -> {delivery_tag}")
                         redis_connect.delete(task_id)
                         pubsub.close()
                         ch.connection.add_callback_threadsafe(callback)
@@ -60,7 +61,8 @@ def redis_subscribe(original_tag: int, ch: BlockingChannel, callback: Callable):
     return delivery_tag
 
 
-def redis_stop_task(scan_id:int):
+def redis_stop_task(data: Dict):
+    scan_id = data.get("scan_id")
     is_valid = False
     if scan_id is not None:
         redis_connect = redis_config.connect_to_redis()
@@ -69,14 +71,19 @@ def redis_stop_task(scan_id:int):
             is_valid = True
             print(f"DELETE TASK_ID: {task_id} for scan_id: {scan_id}")
             # celery_app.control.revoke(task_id, terminal=True, signal="SIGTERM")
-            celery_app.control.terminate(task_id, signal="SIGTERM")
+            try:
+                celery_app.control.terminate(task_id, signal="SIGTERM")
+                celery_app.control.revoke(
+                    task_id, signal="SIGKILL", terminate=True)
+            except:
+                pass
             redis_connect.delete(scan_id)
             # 종료 ACK 를 위한 몸부림
             print(f"Manual Termination for task_id -> {task_id}")
             redis_connect.publish(channel="task_channel", message=f"{task_id}")
             redis_connect.close()
     return is_valid
-        
+
 
 class RabbitConfig:
     # print 옵션
@@ -87,7 +94,12 @@ class RabbitConfig:
     port = 5672
     username = "guest"
     password = "guest"
-    topics = ["hello", "stop_hello"]
+
+    # topic : callback(args=data) 형태의 맵 정보를 가지고 처리가능
+    topic_mapping = {
+        "start_hello": start_task_hello,
+        "stop_hello": redis_stop_task,
+    }
 
     # 내부 사용 목적 -> may be replaced with redis..?
     store = {}
@@ -98,7 +110,6 @@ class RabbitConfig:
         method: Basic.Deliver,
         properties: BasicProperties,
         body: str,
-        next_callback: Callable,
     ):
         """최초로 메시지를 수신, 포메팅 후 작업을 처리하는 calllback 을 호출, 이후 수동 ACK 를 호출
 
@@ -118,13 +129,15 @@ class RabbitConfig:
             print(f"[O] RECV [TOPIC: {topic}] -> {method}")
 
         # 비동기 작업 ID
-        res = next_callback(topic, data)
+        res = None
+        task: Callable = self.topic_mapping.get(topic)
+        res = task(data) if task is not None else None
         if res is not None:
             if res == 0:
                 ch.basic_nack(method.delivery_tag)
             elif res == 1:
                 self.ack_callback(ch, method.delivery_tag, origin="TASK_STOP")
-                
+
             else:
                 task_id = str(res)
                 delivery_key = f"{task_id}"
@@ -149,7 +162,9 @@ class RabbitConfig:
                 method.delivery_tag,
             )
 
-    def ack_callback(self, ch: BlockingChannel, delivery_tag: str, origin: str = "DEFAULT"):
+    def ack_callback(
+        self, ch: BlockingChannel, delivery_tag: str, origin: str = "DEFAULT"
+    ):
         delivery_tag = int(delivery_tag)
         if self.verbose:
             print(f"[O] <{origin}> ACK -> {delivery_tag}")
@@ -161,21 +176,12 @@ class RabbitConfig:
 
     def controller_callback(self, topic: str, data: Dict):
         # 토픽에 맞춰서 구현하신 핸들러를 필요에 따라 import해 사용하시면 됩니다
-        print(data)
-        if topic in self.topics:
-            if topic == "hello":
-                scan_id = data.get("scan_id")
-                if scan_id is not None:
-                    return hello_task.delay(scan_id)
-            elif topic == "stop_hello":
-                scan_id = data.get("scan_id")
-                is_valid = redis_stop_task(scan_id)
-                ret_value = 1 if is_valid else 0
-                return ret_value
+        task: Callable = self.topic_mapping.get(topic)
+        if task is not None:
+            return task(data)
         else:
             print(f"Wrabbit ERROR: Undefined Topic -> {topic}")
-
-        return None
+            return None
 
 
 class RabbitWrapper(RabbitConfig):
@@ -246,16 +252,13 @@ class RabbitWrapper(RabbitConfig):
         while True:
             try:
                 self.__channel()
-                self.channel.exchange_declare(exchange="default", exchange_type="topic")
-                on_message_callback = partial(
-                    self.receiver_callback, next_callback=self.controller_callback
-                )
-
-                for topic in self.topics:
+                self.channel.exchange_declare(
+                    exchange="default", exchange_type="topic")
+                for topic in list(self.topic_mapping.keys()):
                     self.channel.queue_declare(queue=topic, durable=True)
                     self.channel.basic_consume(
                         queue=topic,
-                        on_message_callback=on_message_callback,
+                        on_message_callback=self.receiver_callback,
                         auto_ack=False,
                     )
 
@@ -290,16 +293,25 @@ class RabbitWrapper(RabbitConfig):
         print(ret_message)
 
         formatted_data = dumps(ret_message)
-        self.__connect(producer=True)
-        self.__channel(producer=True)
-        channel = self.producer_connection.channel()
+        # self.__connect(producer=True)
+        # self.__channel(producer=True)
+
+        connection = BlockingConnection(
+            pika.URLParameters(
+                f"amqp://{self.username}:{self.password}@{self.host}:{self.port}/"
+            )
+        )
+
+        channel = connection.channel()
         channel.basic_publish(
             exchange="",
             routing_key=topic,
             body=formatted_data,
-            properties=pika.BasicProperties(delivery_mode=PERSISTENT_DELIVERY_MODE),
+            properties=pika.BasicProperties(
+                delivery_mode=PERSISTENT_DELIVERY_MODE),
         )
         print(f"message published with routing key -> {topic}")
+        connection.close()
 
 
 # 싱글톤 및 lock 관련 내용
@@ -311,7 +323,8 @@ __cache_wrappers_lock = RLock()
 # 로깅
 logger = logging.getLogger("rabbitmq_wrapper")
 logger.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+formatter = logging.Formatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
 logger.addHandler(stream_handler)
