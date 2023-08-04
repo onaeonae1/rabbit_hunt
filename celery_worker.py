@@ -39,9 +39,9 @@ class CallbackTask(Task):
 
 
 @celery_app.task(base=CallbackTask)
-def hello_task(scan_id:int):
+def hello_task(scan_id: int):
     task_id = hello_task.request.id
-    
+
     scan_id = int(scan_id)
     task_id = str(task_id)
     redis_connect = connect_to_redis()
@@ -49,15 +49,22 @@ def hello_task(scan_id:int):
     redis_connect.close()
 
     print(f"HELLO -> [ID: {scan_id}] / TASK_ID: {task_id}")
-    
-    
+
     time.sleep(10)
-    
+
     counter = 0
     while counter < 10:
         counter = counter+1
         print(f"hello counter from ID: {scan_id} -> {counter}")
         time.sleep(3)
+
+
+def start_task_hello(data: Dict):
+    ret_value = None
+    scan_id = data.get("scan_id")
+    if scan_id is not None:
+        ret_value = hello_task.delay(scan_id)
+    return ret_value
 
 
 @celery_app.task(base=CallbackTask)
