@@ -270,7 +270,7 @@ class RabbitWrapper(RabbitConfig):
                 print("[!] Connection Closed By Broker -> Recovery Disabled")
                 break
             except AMQPChannelError as e:
-                print(f"[!] Channel Error [{e}]-> fuckoff!")
+                print(f"[!] Channel Error [{e}]")
                 break
             except AMQPConnectionError:
                 print("[?] AMQP Connection Error -> Start Recovery!")
@@ -302,13 +302,17 @@ class RabbitWrapper(RabbitConfig):
             )
         )
 
+        properties = pika.BasicProperties(
+            delivery_mode=PERSISTENT_DELIVERY_MODE,
+            expiration="5400000" if topic.startswith("start") else '3000',
+        )
+
         channel = connection.channel()
         channel.basic_publish(
             exchange="",
             routing_key=topic,
             body=formatted_data,
-            properties=pika.BasicProperties(
-                delivery_mode=PERSISTENT_DELIVERY_MODE),
+            properties=properties,
         )
         print(f"message published with routing key -> {topic}")
         connection.close()

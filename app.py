@@ -73,3 +73,44 @@ async def stop_scanner(scan_id: int):
     rabbit_wrapper.produce("stop_scanner", {
         "scan_id": scan_id,
     })
+
+
+@app.get("/start_exploit")
+async def start_exploit(scan_id: int):
+    rabbit_wrapper.produce("start_exploit", {
+        "host": "cobla.io",
+        "scan_id": scan_id,
+        "target_list": [
+            {
+                "port": 80,
+                "state": "open",
+                "protocol": "tcp",
+                "service": "http",
+            },
+        ]
+    })
+
+
+@app.get("/stop_exploit")
+async def stop_exploit(scan_id: int):
+    rabbit_wrapper.produce("stop_exploit", {
+        "scan_id": scan_id,
+    })
+
+
+@app.get("/start_brute")
+async def start_brute(scan_id: int):
+    rabbit_wrapper.produce(
+        "start_bruteforce", {
+            "host": "cobla.io",
+            "scan_id": scan_id,
+            "target_list": [
+                {
+                    "port": 80,
+                    "state": "open",
+                    "protocol": "tcp",
+                    "service": "http",
+                }
+            ]
+        }
+    )
